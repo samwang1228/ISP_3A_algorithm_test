@@ -141,3 +141,32 @@ mkdir -p out
 - **AWB-like**：用 gray-world 估計每通道增益，使 RGB mean 更接近
 - **AE-like**：根據 post-WB mean luma 計算全域曝光縮放，並用 luma percentile 做高光保護（避免過曝爆掉）
 - 套用增益與曝光後，轉回 sRGB 輸出
+
+## 產生文件（Doxygen）
+
+你可以用 Doxygen 產生 HTML 文件（介面說明、參數欄位、簡單導覽）。
+
+### macOS 安裝
+
+```bash
+brew install doxygen graphviz
+```
+
+### 產生 HTML（直接用 doxygen）
+
+在專案根目錄：
+
+```bash
+doxygen Doxyfile
+```
+
+輸出會在：
+
+- `docs/doxygen-html/index.html`
+
+### 產生 HTML（透過 CMake target）
+
+```bash
+cmake -S . -B build -DISP3A_BUILD_DOCS=ON
+cmake --build build --target doc
+```

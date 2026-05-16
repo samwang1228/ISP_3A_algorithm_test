@@ -4,6 +4,8 @@ project(isp_3a_demo LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(ISP3A_BUILD_DOCS "Build Doxygen documentation target" OFF)
+
 find_package(OpenCV QUIET)
 
 if(NOT OpenCV_FOUND)
@@ -33,5 +35,20 @@ if(OpenCV_FOUND)
 	target_compile_definitions(isp_3a_demo PRIVATE ISP3A_HAVE_OPENCV=1)
 else()
 	message(WARNING "OpenCV not found. Image mode will be disabled; build still supports simulation mode.")
+endif()
+
+if(ISP3A_BUILD_DOCS)
+	find_package(Doxygen QUIET)
+	if(DOXYGEN_FOUND)
+		add_custom_target(
+			doc
+			COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			COMMENT "Generating Doxygen HTML documentation"
+			VERBATIM
+		)
+	else()
+		message(WARNING "Doxygen not found. Install doxygen to enable the 'doc' target.")
+	endif()
 endif()
 

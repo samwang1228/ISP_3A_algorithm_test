@@ -35,6 +35,8 @@ public:
     explicit Simulator(uint32_t seed = 0, Params p = Params()) : params_(p), rng_(seed) {}
 
     Stats renderStats(const Scene& scene, const ControlSet& controls) {
+        // This is a *toy sensor model* that outputs the statistics a 3A algorithm would consume.
+        // We simulate: raw RGB means (pre-WB), post-WB luma, and a focus-dependent sharpness metric.
         float totalExposure = controls.exposure * controls.gain;
 
         std::normal_distribution<float> nChroma(0.0f, params_.chromaNoiseSigma);
@@ -54,6 +56,7 @@ public:
         luma = clampf(luma + nLuma(rng_), params_.clipMin, params_.clipMax);
 
         float focusErr = controls.focus - scene.optimalFocus;
+        // Sharpness peaks near the scene's optimal focus and degrades with defocus.
         float focusTerm = std::exp(-(focusErr * focusErr) / (2.0f * params_.focusSigma * params_.focusSigma));
         float lightTerm = clampf((luma - 0.02f) / 0.18f, 0.0f, 1.0f);
         float sharp = params_.sharpnessMax * focusTerm * (0.4f + 0.6f * lightTerm);
@@ -95,6 +98,9 @@ public:
     explicit AutoExposure(Params p = Params()) : params_(p) {}
 
     void process(const Stats& stats, ControlSet& controls) {
+        // AE controller (multiplicative):
+        // - controls totalExposure = exposure * gain
+        // - allocates between exposure and gain with a preference toward exposure
         float currentLuma = clampf(stats.meanLuma, 0.0f, 1.0f);
         float ratio = safeDiv(params_.targetMeanLuma, currentLuma + 1e-4f);
 
@@ -111,9 +117,11 @@ public:
         float desiredGain = 0.0f;
 
         if (expLow <= expHigh) {
+            // Feasible region: choose exposure then derive gain.
             desiredExp = expLow + (expHigh - expLow) * params_.exposurePriority;
             desiredGain = clampf(desiredTotal / desiredExp, params_.gainMin, params_.gainMax);
         } else {
+            // Infeasible due to limits: clamp exposure first, then gain.
             desiredExp = clampf(desiredTotal, params_.exposureMin, params_.exposureMax);
             desiredGain = clampf(desiredTotal / desiredExp, params_.gainMin, params_.gainMax);
         }
@@ -152,6 +160,9 @@ public:
     explicit AutoWhiteBalance(Params p = Params()) : params_(p) {}
 
     void process(const Stats& stats, ControlSet& controls) {
+        // AWB controller (gray-world):
+        // - uses pre-WB channel means
+        // - freezes updates when the frame is too dark or too close to clipping
         if (stats.meanLuma < params_.minLumaToUpdate || stats.meanLuma > params_.maxLumaToUpdate) {
             return;
         }
@@ -199,6 +210,9 @@ public:
     explicit AutoFocus(Params p = Params()) : params_(p) {}
 
     void process(const Stats& stats, ControlSet& controls) {
+        // AF is a simple two-mode state machine:
+        // - Scan: coarse sweep to find a good focus
+        // - Track: local hill-climb; if sharpness drops a lot, re-scan
         if (mode_ == Mode::Scan) {
             stepScan(stats, controls);
         } else {
@@ -220,6 +234,7 @@ private:
 
         controls.focus += params_.scanStep;
         if (controls.focus >= params_.focusMax) {
+            // Scan complete: jump to best and switch to tracking.
             controls.focus = bestFocus_;
             mode_ = Mode::Track;
             settleCounter_ = params_.settleFrames;
@@ -235,6 +250,7 @@ private:
         }
 
         if (bestSharpness_ > 1e-3f && stats.sharpness < bestSharpness_ * params_.reScanDropRatio) {
+            // Scene likely changed: re-scan from scratch.
             mode_ = Mode::Scan;
             bestSharpness_ = 0.0f;
             bestFocus_ = params_.focusMin;

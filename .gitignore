@@ -2,3 +2,8 @@ build
 background
 out
 input
+docs
+.DS_Store
+**/.DS_Store
+*.log
+*.tmp

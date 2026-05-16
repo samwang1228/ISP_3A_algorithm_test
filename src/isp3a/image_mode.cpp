@@ -40,6 +40,8 @@ static inline float linearToSrgb1(float x) {
 }
 
 static cv::Mat srgbToLinear(const cv::Mat& bgr8u) {
+    // NOTE: OpenCV uses BGR channel order.
+    // We convert sRGB -> linear (approx) so exposure/WB math behaves more like real ISP.
     cv::Mat bgr32f;
     bgr8u.convertTo(bgr32f, CV_32FC3, 1.0 / 255.0);
     cv::Mat linear(bgr32f.size(), CV_32FC3);
@@ -56,6 +58,7 @@ static cv::Mat srgbToLinear(const cv::Mat& bgr8u) {
 }
 
 static cv::Mat linearToSrgb8u(const cv::Mat& bgrLin32f) {
+    // Convert linear -> sRGB for display/file output.
     cv::Mat srgb(bgrLin32f.size(), CV_32FC3);
     for (int y = 0; y < bgrLin32f.rows; ++y) {
         const cv::Vec3f* src = bgrLin32f.ptr<cv::Vec3f>(y);
@@ -72,6 +75,7 @@ static cv::Mat linearToSrgb8u(const cv::Mat& bgrLin32f) {
 }
 
 static void computeMeansLinear(const cv::Mat& bgrLin, float& meanB, float& meanG, float& meanR, float& meanLuma) {
+    // Global means in *linear* space.
     cv::Scalar m = cv::mean(bgrLin);
     meanB = static_cast<float>(m[0]);
     meanG = static_cast<float>(m[1]);
@@ -80,6 +84,8 @@ static void computeMeansLinear(const cv::Mat& bgrLin, float& meanB, float& meanG
 }
 
 static float percentileLumaLinear(const cv::Mat& bgrLin, float p) {
+    // Approximate a luma percentile (used for highlight protection).
+    // Downsample to keep it fast enough for large images.
     cv::Mat small;
     int maxW = 512;
     if (bgrLin.cols > maxW) {
@@ -119,15 +125,21 @@ struct Image3AResult {
 };
 
 static Image3AResult estimateImage3A(const cv::Mat& bgrLin, const Image3AParams& p) {
+    // Image 3A (single-frame, post-process):
+    // - AWB-like: gray-world gains from global RGB means
+    // - AE-like: single global exposureScale from post-WB mean luma
+    // - Highlight protection: limit exposureScale using a high luma percentile
     float meanB = 0, meanG = 0, meanR = 0, meanL = 0;
     computeMeansLinear(bgrLin, meanB, meanG, meanR, meanL);
 
     float avg = (meanR + meanG + meanB) / 3.0f;
+    // Gray-world: push each channel mean toward the overall average.
     float gainR = clampf(safeDiv(avg, meanR + 1e-6f), p.minGain, p.maxGain);
     float gainG = clampf(safeDiv(avg, meanG + 1e-6f), p.minGain, p.maxGain);
     float gainB = clampf(safeDiv(avg, meanB + 1e-6f), p.minGain, p.maxGain);
 
     cv::Mat wb = bgrLin.clone();
+    // Apply WB to estimate post-WB luma for AE.
     for (int y = 0; y < wb.rows; ++y) {
         cv::Vec3f* row = wb.ptr<cv::Vec3f>(y);
         for (int x = 0; x < wb.cols; ++x) {
@@ -141,6 +153,9 @@ static Image3AResult estimateImage3A(const cv::Mat& bgrLin, const Image3AParams&
 
     float exposureScale = clampf(safeDiv(p.targetMeanLuma, wbMeanL + 1e-6f), p.minExposure, p.maxExposure);
 
+    // Highlight protection:
+    // If the p-th percentile luma is already high, cap exposureScale so that percentile
+    // does not exceed clipProtectMax. This avoids blowing out bright regions.
     float pL = percentileLumaLinear(wb, p.clipProtectP);
     if (pL > 1e-6f) {
         exposureScale = std::min(exposureScale, p.clipProtectMax / pL);
@@ -164,7 +179,10 @@ static cv::Mat applyImage3A(const cv::Mat& bgrLin, const Image3AParams& p, const
     }
 
     if (p.toneMap) {
-        // Extended Reinhard tone mapping on luma, preserving chroma.
+        // Tone mapping (extended Reinhard):
+        // - Operates on luma (linear), preserves chroma by scaling RGB uniformly.
+        // - Lets us allow HDR headroom (values > 1) and compress back into [0, 1] smoothly.
+        // - `toneMapWhite` roughly controls how quickly highlights roll off.
         float white = std::max(1e-3f, p.toneMapWhite);
         float white2 = white * white;
         for (int y = 0; y < out.rows; ++y) {
@@ -176,6 +194,8 @@ static cv::Mat applyImage3A(const cv::Mat& bgrLin, const Image3AParams& p, const
 
                 float l = 0.2126f * rr + 0.7152f * g + 0.0722f * b;
                 if (l > 1e-6f) {
+                    // Extended Reinhard:
+                    //   Lm = (L * (1 + L / W^2)) / (1 + L)
                     float lm = (l * (1.0f + l / white2)) / (1.0f + l);
                     float s = lm / l;
                     row[x][0] = b * s;

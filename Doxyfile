@@ -1,0 +1,42 @@
+# Doxygen configuration for isp_3a_demo
+
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = "isp_3a_demo"
+PROJECT_BRIEF          = "Simplified ISP 3A (AE/AWB/AF) demo: simulation + image mode"
+
+OUTPUT_DIRECTORY       = docs
+GENERATE_HTML          = YES
+HTML_OUTPUT            = doxygen-html
+GENERATE_LATEX         = NO
+
+# Input
+INPUT                  = src \
+                         main.cpp \
+                         README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.cpp *.md
+
+# Extraction
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_LOCAL_METHODS  = YES
+
+# Build quality
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+
+# Markdown support
+MARKDOWN_SUPPORT       = YES
+
+# Graphs (optional; requires graphviz). Default OFF to avoid requiring `dot`.
+HAVE_DOT               = NO
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+
+# Misc
+INLINE_SOURCES         = NO
+SOURCE_BROWSER         = YES
+STRIP_FROM_PATH        = 
